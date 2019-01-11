@@ -100,7 +100,7 @@ func (c ConfigObserver) sync() error {
 
 	mergedObservedConfig := map[string]interface{}{}
 	for _, observedConfig := range observedConfigs {
-		if err := mergo.Merge(&mergedObservedConfig, observedConfig); err != nil {
+		if err := mergo.Merge(&mergedObservedConfig, observedConfig, mergo.WithOverride); err != nil {
 			glog.Warningf("merging observed config failed: %v", err)
 		}
 	}

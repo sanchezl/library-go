@@ -7,8 +7,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ghodss/yaml"
-	"github.com/imdario/mergo"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/fake"
@@ -83,6 +81,21 @@ func TestSyncStatus(t *testing.T) {
 				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
 					return map[string]interface{}{"baz": "three"}, nil
 				},
+				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+					return map[string]interface{}{"level1": map[string]interface{}{"level2_a": map[string]interface{}{"level3_a": "hello"}}}, nil
+				},
+				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+					return map[string]interface{}{"level1": map[string]interface{}{"level2_a": map[string]interface{}{"level3_b": "world"}}}, nil
+				},
+				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+					return map[string]interface{}{"level1": map[string]interface{}{"level2_b": "hello world"}}, nil
+				},
+				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+					return map[string]interface{}{"level1": map[string]interface{}{"level2_c": []interface{}{"slice_entry_a"}}}, nil
+				},
+				func(listers Listers, recorder events.Recorder, existingConfig map[string]interface{}) (observedConfig map[string]interface{}, errs []error) {
+					return map[string]interface{}{"level1": map[string]interface{}{"level2_c": []interface{}{"slice_entry_b"}}}, nil
+				},
 			},
 
 			expectError: false,
@@ -90,6 +103,16 @@ func TestSyncStatus(t *testing.T) {
 				"foo": "one",
 				"bar": "two",
 				"baz": "three",
+				"level1": map[string]interface{}{
+					"level2_a": map[string]interface{}{
+						"level3_a": "hello",
+						"level3_b": "world",
+					},
+					"level2_b": "hello world",
+					"level2_c": []interface{}{
+						"slice_entry_b",
+					},
+				},
 			}},
 			expectedCondition: &operatorv1.OperatorCondition{
 				Type:   operatorStatusTypeConfigObservationFailing,
@@ -227,16 +250,6 @@ func TestSyncStatus(t *testing.T) {
 			}
 
 		})
-	}
-}
-
-func TestMergoVersion(t *testing.T) {
-	type test struct{ A string }
-	src := test{"src"}
-	dest := test{"dest"}
-	mergo.Merge(&dest, &src)
-	if dest.A != "src" {
-		t.Errorf("incompatible version of github.com/imdario/mergo found")
 	}
 }
 
