@@ -1,5 +1,5 @@
-hash: 4d3e9f1660cfb5c04c547dbd86f0fa8b94f9c84e1ba99ba6189d1afe7bb2afbd
-updated: 2019-01-10T14:19:44.967096398-05:00
+hash: b5a071935aaa241a0ad9942cc75b2a9792bf40668a58fc388daf50d3306977f5
+updated: 2019-01-11T11:17:15.430338635-05:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -161,7 +161,7 @@ imports:
   subpackages:
   - simplelru
 - name: github.com/imdario/mergo
-  version: 6633656539c1639d9d78127b7d47c622b5d7b6dc
+  version: 9316a62528ac99aaecb4e47eadd6dc8aa6533d58
 - name: github.com/inconshreveable/mousetrap
   version: 76626ae9c91c4f2a10f34cad8ce83ea42c93bb75
 - name: github.com/json-iterator/go
@@ -185,7 +185,7 @@ imports:
 - name: github.com/NYTimes/gziphandler
   version: 56545f4a5d46df9a6648819d1664c3a03a13ffdb
 - name: github.com/openshift/api
-  version: 1ef604446c39f0e4a15366ffe3a44a57b2724858
+  version: 41441486d6a9a02259284918c23060550817e62e
   subpackages:
   - apps
   - apps/v1
@@ -716,6 +716,6 @@ imports:
   - pkg/util/proto
 testImports:
 - name: vbom.ml/util
-  version: db5cfe13f5cc80a4990d98e2e1b0707a4d1a5394
+  version: efcd4e0f97874370259c7d93e12aad57911dea81
   subpackages:
   - sortorder
