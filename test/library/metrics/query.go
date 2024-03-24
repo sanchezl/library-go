@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
 	prometheusapi "github.com/prometheus/client_golang/api"
 	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	corev1 "k8s.io/api/core/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/transport"
@@ -36,24 +35,15 @@ func NewPrometheusClient(ctx context.Context, kclient kubernetes.Interface, rc r
 		return nil, err
 	}
 	host := route.Status.Ingress[0].Host
-	var bearerToken string
-	secrets, err := kclient.CoreV1().Secrets("openshift-monitoring").List(ctx, metav1.ListOptions{})
+	expirationSeconds := int64(12 * time.Hour / time.Second)
+	req, err := kclient.CoreV1().ServiceAccounts("openshift-monitoring").CreateToken(ctx, "prometheus-k8s",
+		&authenticationv1.TokenRequest{
+			Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &expirationSeconds},
+		}, metav1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("could not list secrets in openshift-monitoring namespace")
+		return nil, fmt.Errorf("error requesting token for service account prometheus-k8s: %v", err)
 	}
-	for _, s := range secrets.Items {
-		if s.Type != corev1.SecretTypeServiceAccountToken ||
-			!strings.HasPrefix(s.Name, "prometheus-k8s") {
-			continue
-		}
-		bearerToken = string(s.Data[corev1.ServiceAccountTokenKey])
-		break
-	}
-	if len(bearerToken) == 0 {
-		return nil, fmt.Errorf("prometheus service account not found")
-	}
-
-	return createClient(ctx, kclient, host, bearerToken)
+	return createClient(ctx, kclient, host, req.Status.Token)
 }
 
 func createClient(ctx context.Context, kclient kubernetes.Interface, host, bearerToken string) (prometheusv1.API, error) {
