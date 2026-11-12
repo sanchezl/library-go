@@ -14,16 +14,19 @@ import (
 	libcrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-// New constructs an outbound HTTP round tripper from the supplied
-// options. By default, it trusts the system certificate pool, honors the
-// standard proxy environment variables, and applies the OpenShift-wide TLS
-// defaults (minimum version and cipher suites) from pkg/crypto.DefaultTLSVersion
-// and pkg/crypto.DefaultCiphers.
+// New constructs an outbound HTTP round tripper from the supplied options. By
+// default, it trusts the system certificate pool, honors the standard proxy
+// environment variables, and applies the OpenShift-wide TLS defaults (minimum
+// version and cipher suites) from pkg/crypto.DefaultTLSVersion and
+// pkg/crypto.DefaultCiphers.
 //
 // The concrete type of the returned http.RoundTripper is not part of the API.
-// When no CA content provider is supplied it is a static *http.Transport.
-//
-// Full lifecycle documentation lands with the dynamic rebuild implementation.
+// When no CA content provider is supplied it is a static *http.Transport and
+// ctx is ignored. When one or more providers are supplied, the returned round
+// tripper follows their CA content changes until ctx is done, then keeps
+// serving the last transport it built; see the package documentation for the
+// rebuild and lifecycle semantics, including the requirement to construct all
+// round trippers before starting the providers' Run.
 func New(ctx context.Context, opts ...Option) (http.RoundTripper, error) {
 	var config Config
 	for i, option := range opts {

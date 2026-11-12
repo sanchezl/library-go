@@ -34,6 +34,11 @@ type Config struct {
 // pool. The transport registers for provider notifications and rebuilds itself
 // when the provider reports a change. It may be supplied multiple times; every
 // provider's current bundle is added to the pool.
+//
+// The provider must not be running yet when New is called: the
+// dynamiccertificates providers do not synchronize AddListener, so adding a
+// listener to a running provider is a data race. Construct all round trippers
+// before starting the providers' Run.
 func WithCAContentProvider(provider dynamiccertificates.CAContentProvider) Option {
 	return func(config *Config) error {
 		if provider == nil {
