@@ -20,14 +20,19 @@
 //
 // # Rebuild semantics
 //
-// When a provider reports a change, the wrapper snapshots every provider's
-// current bundle, builds a new transport from that snapshot, and swaps it in
-// for new connections. Rebuilds are coalesced (a burst of notifications
-// triggers one rebuild), serialized, and retried with backoff if building the
-// new transport fails. If the new content cannot be parsed, the previous
-// transport stays in use until a rebuild succeeds; a replacement is therefore
-// not instantaneous under failure. Connections already established are not
-// re-verified; idle connections held by the replaced transport are closed.
+// When a provider reports a change, the wrapper rebuilds in the background:
+// it snapshots every provider's current bundle, builds a new transport from
+// that snapshot, and swaps it in for new connections. There is at most one
+// pending rebuild (a burst of notifications collapses into it), rebuilds are
+// serialized, and a failed build is retried with backoff. If the new content
+// cannot be parsed, the previous transport stays in use until a rebuild
+// succeeds. Connections already established are not re-verified; idle
+// connections held by the replaced transport are closed.
+//
+// Unlike pkg/network/httptransport, which rebuilt synchronously inside the
+// provider's notification, the rebuild here is asynchronous: for a short
+// window after a provider reports a change, the previous trust is still in
+// use.
 //
 // A periodic resync bounds how long a missed provider notification can go
 // unnoticed.
@@ -39,8 +44,15 @@
 // transport it built. Callers that want a fresh trust state should build a new
 // round tripper.
 //
+// A dynamic round tripper is not cheap to create: each one starts a small set
+// of goroutines and timers that live until its context is done, and registers
+// a listener entry with each provider that the providers never remove. Build
+// round trippers once per provider set, not per request or per configuration
+// reload, and scope their context accordingly.
+//
 // Callers own the lifecycle of supplied CA content providers. Construct all
-// round trippers before starting the providers' Run: the dynamiccertificates
+// round trippers before starting the providers' Run, and do not construct
+// round trippers concurrently on the same provider: the dynamiccertificates
 // providers do not synchronize AddListener, so adding a listener to a running
-// provider is a data race.
+// provider is a data race and a concurrent add can lose a listener.
 package dynamictransport

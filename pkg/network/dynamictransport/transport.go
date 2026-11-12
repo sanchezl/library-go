@@ -23,10 +23,11 @@ import (
 // The concrete type of the returned http.RoundTripper is not part of the API.
 // When no CA content provider is supplied it is a static *http.Transport and
 // ctx is ignored. When one or more providers are supplied, the returned round
-// tripper follows their CA content changes until ctx is done, then keeps
-// serving the last transport it built; see the package documentation for the
-// rebuild and lifecycle semantics, including the requirement to construct all
-// round trippers before starting the providers' Run.
+// tripper follows their CA content changes, rebuilding in the background,
+// until ctx is done, then keeps serving the last transport it built; see the
+// package documentation for the rebuild and lifecycle semantics, including
+// the requirement to construct all round trippers before starting the
+// providers' Run.
 func New(ctx context.Context, opts ...Option) (http.RoundTripper, error) {
 	var config Config
 	for i, option := range opts {
