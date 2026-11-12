@@ -374,3 +374,49 @@ func TestClientCertificateMutualTLS(t *testing.T) {
 	assertTrusted(t, roundTripper, server.URL)
 	assert.Len(t, underlyingTransport(t, roundTripper).TLSClientConfig.Certificates, 2)
 }
+
+// TestDisableHTTP2SurvivesRebuild verifies the option's "including after CA
+// reload" promise on the dynamic path.
+func TestDisableHTTP2SurvivesRebuild(t *testing.T) {
+	t.Setenv("DISABLE_HTTP2", "")
+	ca := newTestCA(t, "protocol-ca")
+	rotatedCA := newTestCA(t, "rotated-ca")
+	server := startTLSServer(t, ca.serverCertificate, nil, func(server *httptest.Server) {
+		server.EnableHTTP2 = true
+	})
+
+	provider := newTestCAProvider("provider", ca.pem)
+	roundTripper := newTestRoundTripper(t,
+		WithCAContentProvider(provider),
+		WithCAData("static", ca.pem),
+		WithDisabledHTTP2(),
+		WithProxyFunc(nil),
+	)
+	dynamic := roundTripper.(*dynamicTransport)
+	previous := dynamic.current.Load()
+
+	client := &http.Client{Transport: roundTripper}
+	t.Cleanup(client.CloseIdleConnections)
+
+	doRequest := func() int {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		require.NoError(t, err)
+		response, err := client.Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		return response.ProtoMajor
+	}
+
+	require.Equal(t, 1, doRequest(), "HTTP/2 must be disabled before the rebuild")
+
+	provider.setContent(rotatedCA.pem)
+	eventually(t, func() error {
+		if dynamic.current.Load() != previous {
+			return nil
+		}
+		return fmt.Errorf("transport was not rebuilt")
+	})
+
+	require.Equal(t, 1, doRequest(), "HTTP/2 must stay disabled after the rebuild")
+}
