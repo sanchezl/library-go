@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewRoundTripperWithoutProvidersReturnsHTTPTransport(t *testing.T) {
-	roundTripper, err := NewRoundTripper(t.Context())
+func TestNewWithoutProvidersReturnsHTTPTransport(t *testing.T) {
+	roundTripper, err := New(t.Context())
 	require.NoError(t, err)
 	require.IsType(t, &http.Transport{}, roundTripper)
 }
@@ -31,6 +31,9 @@ func TestTrustSourcesHandshake(t *testing.T) {
 
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caFile, fileCA.pem, 0600))
+
+	providerCA := newTestCA(t, "provider-ca")
+	provider := newTestCAProvider("provider", providerCA.pem)
 
 	testCases := []struct {
 		name        string
@@ -69,6 +72,12 @@ func TestTrustSourcesHandshake(t *testing.T) {
 			untrustedCA: otherCA,
 		},
 		{
+			name:        "CA content provider trusts its CA",
+			opts:        []Option{WithCAContentProvider(provider)},
+			trustedCA:   providerCA,
+			untrustedCA: otherCA,
+		},
+		{
 			name: "cert pool pins trust when combined with CA data",
 			opts: []Option{
 				WithCertPool(emptyPool),
@@ -78,22 +87,21 @@ func TestTrustSourcesHandshake(t *testing.T) {
 			untrustedCA: otherCA,
 		},
 		{
-			name: "pool, data and file combined trust all their CAs",
+			name: "pool, data, file and provider combined trust all their CAs",
 			opts: []Option{
 				WithCertPool(pool),
 				WithCAData("data", dataCA.pem),
 				WithCAFile("file", caFile),
+				WithCAContentProvider(provider),
 			},
-			trustedCA:   fileCA,
+			trustedCA:   providerCA,
 			untrustedCA: otherCA,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			roundTripper, err := NewRoundTripper(t.Context(), tc.opts...)
-			require.NoError(t, err)
-			t.Cleanup(roundTripper.(interface{ CloseIdleConnections() }).CloseIdleConnections)
+			roundTripper := newTestRoundTripper(t, tc.opts...)
 
 			if tc.trustedCA != nil {
 				server := startTLSServer(t, tc.trustedCA.serverCertificate, nil)

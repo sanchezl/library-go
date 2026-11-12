@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -35,10 +36,13 @@ type testCAProvider struct {
 
 	addListenerCount atomic.Int64
 
-	// onRead, when set, runs before each CurrentCABundleContent call returns.
+	// onRead, when set, runs after each CurrentCABundleContent call reads the
+	// content, before it returns.
 	onRead func(p *testCAProvider)
-	// onAddListener, when set, runs inside AddListener.
-	onAddListener func(p *testCAProvider)
+	// onAddListener, when set, runs inside AddListener with the listener being
+	// added. It runs under the provider lock; only touch the provider's fields
+	// directly and the listener's methods.
+	onAddListener func(p *testCAProvider, listener dynamiccertificates.Listener)
 }
 
 func newTestCAProvider(name string, content []byte) *testCAProvider {
@@ -52,18 +56,18 @@ func (p *testCAProvider) AddListener(listener dynamiccertificates.Listener) {
 	defer p.mu.Unlock()
 	p.addListenerCount.Add(1)
 	if p.onAddListener != nil {
-		p.onAddListener(p)
+		p.onAddListener(p, listener)
 	}
 	p.listeners = append(p.listeners, listener)
 }
 
 func (p *testCAProvider) CurrentCABundleContent() []byte {
 	p.mu.RLock()
+	content := append([]byte(nil), p.content...)
+	p.mu.RUnlock()
 	if p.onRead != nil {
 		p.onRead(p)
 	}
-	content := append([]byte(nil), p.content...)
-	p.mu.RUnlock()
 	return content
 }
 
@@ -76,6 +80,13 @@ func (p *testCAProvider) setContent(content []byte) {
 	p.content = append([]byte(nil), content...)
 	p.mu.Unlock()
 	p.notify()
+}
+
+// setContentQuiet changes the content without notifying listeners.
+func (p *testCAProvider) setContentQuiet(content []byte) {
+	p.mu.Lock()
+	p.content = append([]byte(nil), content...)
+	p.mu.Unlock()
 }
 
 func (p *testCAProvider) notify() {
@@ -215,6 +226,39 @@ func underlyingTransport(t *testing.T, roundTripper http.RoundTripper) *http.Tra
 	if transport, ok := roundTripper.(*http.Transport); ok {
 		return transport
 	}
-	t.Fatalf("got transport type %T, want *http.Transport", roundTripper)
+	if dynamic, ok := roundTripper.(*dynamicTransport); ok {
+		return dynamic.current.Load()
+	}
+	t.Fatalf("got transport type %T, want *http.Transport or *dynamicTransport", roundTripper)
+	return nil
+}
+
+// newTestRoundTripper builds a round tripper bound to the test's context, so
+// its goroutines stop when the test finishes.
+func newTestRoundTripper(t *testing.T, opts ...Option) http.RoundTripper {
+	t.Helper()
+	roundTripper, err := New(t.Context(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(roundTripper.(interface{ CloseIdleConnections() }).CloseIdleConnections)
+	return roundTripper
+}
+
+// getError performs a GET through roundTripper and reports why it failed, for
+// use inside eventually conditions.
+func getError(roundTripper http.RoundTripper, target string) error {
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+	if err != nil {
+		return err
+	}
+	response, err := roundTripper.RoundTrip(request)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", target, response.StatusCode)
+	}
 	return nil
 }

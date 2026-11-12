@@ -4,17 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net/http"
 
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	clientcert "k8s.io/client-go/util/cert"
+	"k8s.io/client-go/util/workqueue"
 
 	libcrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
-// NewRoundTripper constructs an outbound HTTP round tripper from the supplied
+// New constructs an outbound HTTP round tripper from the supplied
 // options. By default, it trusts the system certificate pool, honors the
 // standard proxy environment variables, and applies the OpenShift-wide TLS
 // defaults (minimum version and cipher suites) from pkg/crypto.DefaultTLSVersion
@@ -24,7 +24,7 @@ import (
 // When no CA content provider is supplied it is a static *http.Transport.
 //
 // Full lifecycle documentation lands with the dynamic rebuild implementation.
-func NewRoundTripper(ctx context.Context, opts ...Option) (http.RoundTripper, error) {
+func New(ctx context.Context, opts ...Option) (http.RoundTripper, error) {
 	var config Config
 	for i, option := range opts {
 		if err := option(&config); err != nil {
@@ -33,16 +33,29 @@ func NewRoundTripper(ctx context.Context, opts ...Option) (http.RoundTripper, er
 	}
 
 	if len(config.caContentProviders) > 0 {
-		// Validate the initial CA content by building the transport now; the
-		// dynamic wrapper lands with the rebuild implementation.
-		content := make([][]byte, 0, len(config.caContentProviders))
-		for _, provider := range config.caContentProviders {
-			content = append(content, provider.CurrentCABundleContent())
+		roundTripper := &dynamicTransport{
+			config:         &config,
+			providers:      config.caContentProviders,
+			resyncInterval: defaultResyncInterval,
+			done:           make(chan struct{}),
 		}
-		if _, err := config.newHTTPTransport(content); err != nil {
+		// The initial build may fail; nothing is registered with the providers
+		// and no goroutine exists yet, so failing here leaks nothing.
+		if err := roundTripper.sync(); err != nil {
 			return nil, err
 		}
-		return nil, errors.New("CA content providers are not supported yet")
+		// Nothing below this point can fail. The queue's internal goroutine
+		// must not be created before the last failing step, so it can always
+		// be stopped by run.
+		roundTripper.queue = workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[string](),
+			workqueue.TypedRateLimitingQueueConfig[string]{},
+		)
+		for _, provider := range config.caContentProviders {
+			provider.AddListener(queueListener{queue: roundTripper.queue})
+		}
+		go roundTripper.run(ctx)
+		return roundTripper, nil
 	}
 
 	return config.newHTTPTransport(nil)
