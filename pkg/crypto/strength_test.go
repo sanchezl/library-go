@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// unknownGenerator is a KeyPairGenerator that securityBits does not know
-// about; StrongerKeyPairGenerator must fail closed on it instead of silently
-// picking the other side's key.
+// unknownGenerator is a KeyPairGenerator from outside this package, so it
+// does not report a security strength; StrongerKeyPairGenerator must fail
+// closed on it instead of silently picking the other side's key.
 type unknownGenerator struct{}
 
 func (unknownGenerator) GenerateKeyPair() (stdcrypto.PublicKey, stdcrypto.PrivateKey, error) {
@@ -16,10 +16,9 @@ func (unknownGenerator) GenerateKeyPair() (stdcrypto.PublicKey, stdcrypto.Privat
 
 func TestSecurityBits(t *testing.T) {
 	testCases := []struct {
-		name    string
-		g       KeyPairGenerator
-		want    int
-		wantErr bool
+		name string
+		g    securityStrengther
+		want int
 	}{
 		{
 			name: "RSA-2048",
@@ -67,14 +66,14 @@ func TestSecurityBits(t *testing.T) {
 			want: 200,
 		},
 		{
-			name:    "RSA-1024 below floor",
-			g:       rsaKeyPairGenerator{bits: 1024},
-			wantErr: true,
+			name: "RSA below the table has no strength",
+			g:    rsaKeyPairGenerator{bits: 1024},
+			want: 0,
 		},
 		{
-			name:    "RSA zero value",
-			g:       rsaKeyPairGenerator{},
-			wantErr: true,
+			name: "RSA zero value has no strength",
+			g:    rsaKeyPairGenerator{},
+			want: 0,
 		},
 		{
 			name: "ECDSA-P256",
@@ -92,30 +91,15 @@ func TestSecurityBits(t *testing.T) {
 			want: 256,
 		},
 		{
-			name:    "ECDSA unknown curve",
-			g:       ecdsaKeyPairGenerator{curve: "P224"},
-			wantErr: true,
-		},
-		{
-			name:    "unknown generator type",
-			g:       unknownGenerator{},
-			wantErr: true,
+			name: "ECDSA unknown curve has no strength",
+			g:    ecdsaKeyPairGenerator{curve: "P224"},
+			want: 0,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := securityBits(tc.g)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("securityBits() error = nil, want error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("securityBits() error = %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("securityBits(%s) = %d, want %d", tc.name, got, tc.want)
+			if got := tc.g.securityBits(); got != tc.want {
+				t.Errorf("securityBits() = %d, want %d", got, tc.want)
 			}
 		})
 	}
@@ -199,6 +183,12 @@ func TestStrongerKeyPairGenerator(t *testing.T) {
 			name:    "unknown generator fails closed",
 			a:       ecP256,
 			b:       unknownGenerator{},
+			wantErr: true,
+		},
+		{
+			name:    "unknown generator as first argument fails closed",
+			a:       unknownGenerator{},
+			b:       ecP256,
 			wantErr: true,
 		},
 	}

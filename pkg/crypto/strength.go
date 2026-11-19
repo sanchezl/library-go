@@ -2,24 +2,42 @@ package crypto
 
 import "fmt"
 
+// securityStrengther is implemented by the key pair generators in this
+// package. Each generator reports the security strength of the keys it
+// generates, so adding a key algorithm means implementing securityBits on
+// its generator rather than updating a central switch.
+//
+// The strength is the classical NIST security strength in bits. When a
+// post-quantum algorithm such as ML-DSA is added, a single classical number
+// no longer orders keys correctly: classical RSA and ECDSA keys provide
+// effectively no security against a quantum adversary, so any post-quantum
+// key must outrank any classical key regardless of classical strength (for
+// example ML-DSA-44 over ECDSA P-384), while classical keys keep their
+// relative order among themselves. At that point securityBits must grow into
+// a strength compared on post-quantum strength first and classical strength
+// second. The interface is unexported so that its shape can change then
+// without affecting callers.
+type securityStrengther interface {
+	securityBits() int
+}
+
 // StrongerKeyPairGenerator returns whichever of a or b provides the higher
-// NIST security strength. On a tie, ECDSA is preferred over RSA, and
-// otherwise a is returned. Generators not created by this package are an
-// error, so that callers fail closed instead of silently picking the weaker
-// key when new key algorithms are added.
+// security strength. On a tie, ECDSA is preferred over RSA, and otherwise a
+// is returned. Generators not created by this package are an error, so that
+// callers fail closed instead of silently picking the weaker key.
 func StrongerKeyPairGenerator(a, b KeyPairGenerator) (KeyPairGenerator, error) {
-	sa, err := securityBits(a)
-	if err != nil {
-		return nil, err
+	sa, ok := a.(securityStrengther)
+	if !ok {
+		return nil, fmt.Errorf("cannot determine security strength of key generator %T", a)
 	}
-	sb, err := securityBits(b)
-	if err != nil {
-		return nil, err
+	sb, ok := b.(securityStrengther)
+	if !ok {
+		return nil, fmt.Errorf("cannot determine security strength of key generator %T", b)
 	}
-	if sb > sa {
+	if sb.securityBits() > sa.securityBits() {
 		return b, nil
 	}
-	if sa > sb {
+	if sa.securityBits() > sb.securityBits() {
 		return a, nil
 	}
 	// Equal strength: prefer ECDSA over RSA.
@@ -30,27 +48,6 @@ func StrongerKeyPairGenerator(a, b KeyPairGenerator) (KeyPairGenerator, error) {
 		return b, nil
 	}
 	return a, nil
-}
-
-// securityBits returns the NIST security strength in bits of the keys g
-// generates. For ECDSA, security strength is half the key size (fixed per
-// curve).
-func securityBits(g KeyPairGenerator) (int, error) {
-	switch g := g.(type) {
-	case rsaKeyPairGenerator:
-		return rsaSecurityBits(g.bits)
-	case ecdsaKeyPairGenerator:
-		switch g.curve {
-		case P256:
-			return 128, nil
-		case P384:
-			return 192, nil
-		case P521:
-			return 256, nil
-		}
-		return 0, fmt.Errorf("unknown ECDSA curve %q", g.curve)
-	}
-	return 0, fmt.Errorf("cannot determine security strength of key generator %T", g)
 }
 
 // rsaSecurityStrength lists RSA key sizes in ascending order with their
@@ -68,19 +65,33 @@ var rsaSecurityStrength = []struct {
 	{bits: 8192, strength: 200},
 }
 
-// rsaSecurityBits returns the security strength of the largest tabulated RSA
-// key size not exceeding bits. Rounding down keeps the estimate conservative
-// for sizes between table entries and caps it at the largest entry.
-func rsaSecurityBits(bits int) (int, error) {
-	if err := validateRSAKeySize(bits); err != nil {
-		return 0, err
-	}
+// securityBits returns the strength of the largest tabulated RSA key size not
+// exceeding the generator's size. Rounding down keeps the estimate
+// conservative for sizes between table entries and caps it at the largest
+// entry. A size below the table, which the constructor rejects, has strength
+// 0 and loses every comparison; its GenerateKeyPair fails regardless.
+func (g rsaKeyPairGenerator) securityBits() int {
 	strength := 0
 	for _, e := range rsaSecurityStrength {
-		if e.bits > bits {
+		if e.bits > g.bits {
 			break
 		}
 		strength = e.strength
 	}
-	return strength, nil
+	return strength
+}
+
+// securityBits returns half the curve's key size, the security strength of
+// ECDSA. An unknown curve, which the constructor rejects, has strength 0.
+func (g ecdsaKeyPairGenerator) securityBits() int {
+	switch g.curve {
+	case P256:
+		return 128
+	case P384:
+		return 192
+	case P521:
+		return 256
+	default:
+		return 0
+	}
 }
