@@ -2,7 +2,7 @@ package crypto
 
 import "fmt"
 
-// securityStrengther is implemented by the key pair generators in this
+// securityBitsProvider is implemented by the key pair generators in this
 // package. Each generator reports the security strength of the keys it
 // generates, so adding a key algorithm means implementing securityBits on
 // its generator rather than updating a central switch.
@@ -17,7 +17,7 @@ import "fmt"
 // a strength compared on post-quantum strength first and classical strength
 // second. The interface is unexported so that its shape can change then
 // without affecting callers.
-type securityStrengther interface {
+type securityBitsProvider interface {
 	securityBits() int
 }
 
@@ -26,11 +26,11 @@ type securityStrengther interface {
 // is returned. Generators not created by this package are an error, so that
 // callers fail closed instead of silently picking the weaker key.
 func StrongerKeyPairGenerator(a, b KeyPairGenerator) (KeyPairGenerator, error) {
-	sa, ok := a.(securityStrengther)
+	sa, ok := a.(securityBitsProvider)
 	if !ok {
 		return nil, fmt.Errorf("cannot determine security strength of key generator %T", a)
 	}
-	sb, ok := b.(securityStrengther)
+	sb, ok := b.(securityBitsProvider)
 	if !ok {
 		return nil, fmt.Errorf("cannot determine security strength of key generator %T", b)
 	}

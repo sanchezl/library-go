@@ -17,7 +17,7 @@ func (unknownGenerator) GenerateKeyPair() (stdcrypto.PublicKey, stdcrypto.Privat
 func TestSecurityBits(t *testing.T) {
 	testCases := []struct {
 		name string
-		g    securityStrengther
+		g    securityBitsProvider
 		want int
 	}{
 		{
